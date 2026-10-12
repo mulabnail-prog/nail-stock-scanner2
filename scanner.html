@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+  <meta
+    name="viewport"
+    content="width=device-width,
+             initial-scale=1,
+             maximum-scale=1,
+             user-scalable=no">
+
+  <title>JANスキャナー</title>
+
+  <script
+    src="https://unpkg.com/html5-qrcode">
+  </script>
+
+
+  <style>
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #111;
+      color: white;
+      font-family:
+        "Noto Sans JP",
+        "Noto Sans",
+        sans-serif;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 600px;
+      margin: auto;
+      padding: 20px;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 24px;
+    }
+
+    .message {
+      margin-bottom: 16px;
+      color: #ddd;
+      line-height: 1.6;
+    }
+
+    #reader {
+      width: 100%;
+      overflow: hidden;
+      border-radius: 14px;
+      background: #000;
+    }
+
+    .button {
+      width: 100%;
+      min-height: 54px;
+      margin-top: 16px;
+      border: none;
+      border-radius: 12px;
+      background: #75b8b5;
+      color: white;
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    .status {
+      margin-top: 16px;
+      padding: 14px;
+      border-radius: 10px;
+      background: #222;
+      line-height: 1.6;
+    }
+
+    .error {
+      background: #552222;
+    }
+
+    .success {
+      background: #1f4947;
+    }
+
+    .code {
+      margin-top: 16px;
+      padding: 18px;
+      border-radius: 12px;
+      background: white;
+      color: #222;
+      text-align: center;
+    }
+
+    .code-number {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 2px;
+    }
+
+  </style>
+
+</head>
+
+
+<body>
+
+<div class="container">
+
+  <h1>JANスキャナー</h1>
+
+  <div class="message">
+
+    商品のバーコードを
+    枠内に合わせてください。
+
+  </div>
+
+
+  <div id="reader"></div>
+
+
+  <div
+    id="status"
+    class="status">
+
+    カメラを起動しています…
+
+  </div>
+
+
+  <div
+    id="result"
+    class="code"
+    style="display:none;">
+
+    <div>
+      読み取り結果
+    </div>
+
+    <div
+      id="code"
+      class="code-number">
+    </div>
+
+  </div>
+
+
+  <button
+    class="button"
+    onclick="closeScanner()">
+
+    閉じる
+
+  </button>
+
+</div>
+
+
+<script>
+
+  let scanner = null;
+
+  let scanFinished = false;
+
+
+  /**
+   * ステータス
+   */
+  function setStatus(message, type) {
+
+    const element =
+      document.getElementById('status');
+
+    element.textContent = message;
+
+    element.className = 'status';
+
+    if (type) {
+      element.classList.add(type);
+    }
+
+  }
+
+
+  /**
+   * スキャナー起動
+   */
+  async function startScanner() {
+
+    try {
+
+      /*
+       * JAN-13 / JAN-8だけに絞る。
+       */
+      scanner =
+        new Html5Qrcode(
+          'reader',
+          {
+            formatsToSupport: [
+              Html5QrcodeSupportedFormats.EAN_13,
+              Html5QrcodeSupportedFormats.EAN_8
+            ]
+          }
+        );
+
+
+      /*
+       * 背面カメラを優先。
+       *
+       * exactではなくenvironmentにする。
+       * 端末による制約エラーを避けるため。
+       */
+      const config = {
+
+        fps: 10,
+
+        qrbox: function(
+          viewfinderWidth,
+          viewfinderHeight
+        ) {
+
+          const width =
+            Math.min(
+              Math.floor(viewfinderWidth * 0.85),
+              360
+            );
+
+          const height =
+            Math.min(
+              Math.floor(viewfinderHeight * 0.35),
+              180
+            );
+
+          return {
+            width: width,
+            height: height
+          };
+
+        },
+
+        aspectRatio: 1.777778
+
+      };
+
+
+      await scanner.start(
+
+        {
+          facingMode: 'environment'
+        },
+
+        config,
+
+        onScanSuccess,
+
+        onScanFailure
+
+      );
+
+
+      setStatus(
+        'カメラが起動しました。' +
+        'バーコードを枠内に合わせてください。',
+        'success'
+      );
+
+
+    } catch (error) {
+
+      console.error(error);
+
+      setStatus(
+        getCameraErrorMessage(error),
+        'error'
+      );
+
+    }
+
+  }
+
+
+  /**
+   * JAN読み取り成功
+   */
+  async function onScanSuccess(
+    decodedText,
+    decodedResult
+  ) {
+
+    if (scanFinished) {
+      return;
+    }
+
+
+    const jan =
+      String(decodedText)
+        .trim()
+        .replace(/\s/g, '');
+
+
+    /*
+     * JAN-8 / JAN-13以外は無視。
+     */
+    if (!/^\d{8}$|^\d{13}$/.test(jan)) {
+      return;
+    }
+
+
+    scanFinished = true;
+
+
+    setStatus(
+      'JANコードを読み取りました。',
+      'success'
+    );
+
+
+    document
+      .getElementById('code')
+      .textContent = jan;
+
+
+    document
+      .getElementById('result')
+      .style.display = 'block';
+
+
+    /*
+     * カメラを止める。
+     */
+    try {
+
+      await scanner.stop();
+
+    } catch (error) {
+
+      console.error(error);
+
+    }
+
+
+    /*
+     * 元の在庫管理画面へJANを返す。
+     */
+    if (window.opener) {
+
+      window.opener.postMessage(
+
+        {
+          type: 'JAN_SCANNED',
+          jan: jan
+        },
+
+        '*'
+
+      );
+
+
+      /*
+       * 少しだけ表示してから閉じる。
+       */
+      setTimeout(
+        function() {
+
+          window.close();
+
+        },
+        700
+      );
+
+    } else {
+
+      setStatus(
+        '元の在庫管理画面が見つかりません。' +
+        'この画面を直接開いた場合は、' +
+        '在庫管理画面からJANを読み取ってください。',
+        'error'
+      );
+
+    }
+
+  }
+
+
+  /**
+   * 読み取り失敗
+   *
+   * バーコード探索中は常に呼ばれるため、
+   * エラー表示しない。
+   */
+  function onScanFailure(errorMessage) {
+    // 何もしない
+  }
+
+
+  /**
+   * カメラエラーを分かりやすくする
+   */
+  function getCameraErrorMessage(error) {
+
+    const message =
+      String(
+        error &&
+        error.message
+          ? error.message
+          : error
+      );
+
+
+    if (
+      message.includes(
+        'Permission'
+      ) ||
+      message.includes(
+        'NotAllowed'
+      )
+    ) {
+
+      return (
+        'カメラの使用が許可されていません。' +
+        'ブラウザの設定でカメラを許可してください。'
+      );
+
+    }
+
+
+    if (
+      message.includes(
+        'NotFound'
+      )
+    ) {
+
+      return (
+        '利用できるカメラが見つかりません。'
+      );
+
+    }
+
+
+    if (
+      message.includes(
+        'NotReadable'
+      )
+    ) {
+
+      return (
+        'カメラを使用できません。' +
+        '他のアプリがカメラを使用していないか確認してください。'
+      );
+
+    }
+
+
+    return (
+      'カメラを起動できませんでした。' +
+      'エラー：' +
+      message
+    );
+
+  }
+
+
+  /**
+   * 閉じる
+   */
+  async function closeScanner() {
+
+    if (scanner) {
+
+      try {
+
+        await scanner.stop();
+
+      } catch (error) {
+
+        console.error(error);
+
+      }
+
+    }
+
+
+    window.close();
+
+  }
+
+
+  /*
+   * ページ読み込み後に起動。
+   *
+   * このページ自体がユーザーの
+   * 「JANを読み取る」操作によって
+   * 開かれるため、カメラ許可を要求する。
+   */
+  window.addEventListener(
+    'load',
+    function() {
+
+      startScanner();
+
+    }
+  );
+
+</script>
+
+</body>
+
+</html>
